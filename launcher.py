@@ -42,6 +42,15 @@ def resolve_base_path(cli_base_path: Optional[str]) -> str:
     return os.path.join(script_dir, "Objects")
 
 
+def _resolve_app_icon_path() -> Optional[str]:
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        candidate = os.path.join(script_dir, "launcher.png")
+        return candidate if os.path.isfile(candidate) else None
+    except Exception:
+        return None
+
+
 def find_object_files(base_path: str) -> List[str]:
     """Return a list of absolute paths to all *.json object files in base_path."""
     if not os.path.isdir(base_path):
@@ -103,6 +112,9 @@ class LauncherWindow(QMainWindow):
         self.child_windows: List[Any] = []
 
         self.setWindowTitle("HPC Desktop Launcher")
+        icon_path = _resolve_app_icon_path()
+        if icon_path:
+            self.setWindowIcon(QIcon(icon_path))
         self.resize(1200, 800)
 
         # Breadcrumb toolbar (top)
@@ -468,6 +480,9 @@ def main() -> int:
             json_to_execute = candidate
 
     app = QApplication(sys.argv)
+    app_icon_path = _resolve_app_icon_path()
+    if app_icon_path:
+        app.setWindowIcon(QIcon(app_icon_path))
     window = LauncherWindow(base_path)
     window.show()
     # If a JSON file was provided on CLI, execute its openaction right away
