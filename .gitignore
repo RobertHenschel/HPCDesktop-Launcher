@@ -1,2 +1,5 @@
 Objects/Apps/Jupyter/__pycache__/*
 
+Objects/History/*-*.html
+Objects/History/*-*.json
+Objects/History/*-*.sh

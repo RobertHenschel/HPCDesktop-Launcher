@@ -5,6 +5,8 @@ import json
 import os
 import sys
 import importlib.util
+import html as html_lib
+import shlex
 from types import ModuleType
 from typing import Dict, List, Optional, Any
 
@@ -254,6 +256,17 @@ class LauncherWindow(QMainWindow):
                 self.run_python_plugin(plugin_path, context)
             return
 
+        if command == "shell":
+            # Resolve and execute a shell script (login shell to access 'module')
+            script_path = arg0 if os.path.isabs(arg0) else os.path.abspath(os.path.join(self.base_path, arg0))
+            if os.path.isfile(script_path):
+                try:
+                    import subprocess as _subprocess
+                    _subprocess.Popen(["bash", "-lc", shlex.quote(script_path)], start_new_session=True)
+                except Exception:
+                    pass
+            return
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         # Detect clicks on empty area to clear selection
         if watched is self.icon_list.viewport():
@@ -303,6 +316,101 @@ class LauncherWindow(QMainWindow):
         except Exception:
             # Fallback: show current base as a single crumb
             add_action(self.base_path, self.base_path)
+
+    def record_history(self, entry: Dict[str, str]) -> None:
+        """Create a history JSON file under <root_base_path>/History/.
+
+        Expected keys in entry: "title" and "icon".
+        Optional: "options" (dict) to be documented in a sibling .html file.
+        Silently no-op on error.
+        """
+        try:
+            title = entry.get("title") if isinstance(entry, dict) else None
+            icon = entry.get("icon") if isinstance(entry, dict) else None
+            options = entry.get("options") if isinstance(entry, dict) else None
+            if not isinstance(title, str) or not isinstance(icon, str):
+                return
+
+            history_dir = os.path.join(self.root_base_path, "History")
+            try:
+                os.makedirs(history_dir, exist_ok=True)
+            except Exception:
+                return
+
+            # Build a filename based on timestamp; ensure uniqueness
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            base_name = f"{timestamp}.json"
+            target_path = os.path.join(history_dir, base_name)
+            counter = 1
+            while os.path.exists(target_path):
+                base_name = f"{timestamp}-{counter}.json"
+                target_path = os.path.join(history_dir, base_name)
+                counter += 1
+
+            # Pre-compute sibling HTML path for details reference
+            html_path = os.path.splitext(target_path)[0] + ".html"
+            # Prepare sibling shell script path for replay
+            sh_path = os.path.splitext(target_path)[0] + ".sh"
+
+            # Write shell script only if provided by the entry
+            wrote_shell = False
+            try:
+                replay_script = entry.get("replay_shell_script") if isinstance(entry, dict) else None
+                if isinstance(replay_script, str) and replay_script.strip():
+                    with open(sh_path, "w", encoding="utf-8") as sf:
+                        sf.write(replay_script if replay_script.endswith("\n") else replay_script + "\n")
+                    try:
+                        os.chmod(sh_path, 0o755)
+                    except Exception:
+                        pass
+                    wrote_shell = True
+            except Exception:
+                # Ignore failures to write script; JSON will still be created
+                pass
+
+            payload = {
+                "title": title,
+                "icon": icon,
+                "details": os.path.basename(html_path),
+            }
+            if wrote_shell and os.path.isfile(sh_path):
+                payload["openaction"] = {
+                    "command": "shell",
+                    "arg0": os.path.basename(sh_path),
+                }
+            with open(target_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+
+            # Also write an .html file with the same stem documenting options
+            try:
+                parts = [
+                    "<!DOCTYPE html>",
+                    "<html>",
+                    "  <head>",
+                    "    <meta charset=\"utf-8\">",
+                    f"    <title>{html_lib.escape(title)}</title>",
+                    "  </head>",
+                    "  <body>",
+                    f"    <h2>{html_lib.escape(title)}</h2>",
+                ]
+                if isinstance(options, dict) and options:
+                    parts.append("    <h3>Launch Options</h3>")
+                    parts.append("    <ul>")
+                    for key, value in options.items():
+                        parts.append(
+                            f"      <li><strong>{html_lib.escape(str(key))}:</strong> {html_lib.escape(str(value))}</li>"
+                        )
+                    parts.append("    </ul>")
+                parts.append("  </body>")
+                parts.append("</html>")
+                with open(html_path, "w", encoding="utf-8") as hf:
+                    hf.write("\n".join(parts))
+            except Exception:
+                pass
+        except Exception:
+            # Fail silently
+            return
 
     def run_python_plugin(self, plugin_file: str, context: Dict[str, Any]) -> None:
         # Dynamically import plugin module from a file path

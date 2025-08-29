@@ -1,0 +1,9 @@
+{
+    "title": "History",
+    "icon": "./Resources/History.png",
+    "details": "History.html",
+    "openaction": {
+        "command": "path",
+        "arg0": "./History"
+    }
+}
