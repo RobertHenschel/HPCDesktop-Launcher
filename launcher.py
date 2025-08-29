@@ -7,6 +7,9 @@ import sys
 import importlib.util
 import html as html_lib
 import shlex
+import subprocess
+import signal
+import time
 from types import ModuleType
 from typing import Dict, List, Optional, Any
 
@@ -23,6 +26,7 @@ from PyQt5.QtWidgets import (
     QToolBar,
     QAction,
     QProgressDialog,
+    QMessageBox,
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 
@@ -111,6 +115,7 @@ class LauncherWindow(QMainWindow):
         self.base_path = os.path.abspath(base_path)
         self.root_base_path = self.base_path
         self.child_windows: List[Any] = []
+        self.started_sessions: List[Dict[str, Any]] = []
 
         self.setWindowTitle("HPC Desktop Launcher")
         icon_path = _resolve_app_icon_path()
@@ -291,8 +296,14 @@ class LauncherWindow(QMainWindow):
             script_path = arg0 if os.path.isabs(arg0) else os.path.abspath(os.path.join(self.base_path, arg0))
             if os.path.isfile(script_path):
                 try:
-                    import subprocess as _subprocess
-                    _subprocess.Popen(["bash", "-lc", shlex.quote(script_path)], start_new_session=True)
+                    proc = subprocess.Popen(["bash", "-lc", shlex.quote(script_path)], start_new_session=True)
+                    try:
+                        pgid = os.getpgid(proc.pid)
+                    except Exception:
+                        pgid = None
+                    # Use title from descriptor if present; else script basename
+                    label = str(descriptor.get("title") or os.path.basename(script_path))
+                    self.register_started_session(proc.pid, label, pgid)
                 except Exception:
                     pass
             return
@@ -317,6 +328,136 @@ class LauncherWindow(QMainWindow):
         self.populate_objects()
         self.load_index_html()
         self.update_breadcrumbs()
+
+    # -------------------- Session tracking and cleanup --------------------
+    def register_started_session(self, pid: int, label: str, pgid: Optional[int] = None) -> None:
+        try:
+            self.started_sessions.append({
+                "pid": int(pid),
+                "label": str(label),
+                "pgid": int(pgid) if pgid is not None else None,
+            })
+        except Exception:
+            pass
+
+    def _is_process_alive(self, pid: int) -> bool:
+        try:
+            # Signal 0 checks existence without sending a signal
+            os.kill(pid, 0)
+            return True
+        except Exception:
+            return False
+
+    def _prune_finished_sessions(self) -> None:
+        try:
+            self.started_sessions = [s for s in self.started_sessions if self._is_process_alive(int(s.get("pid", -1)))]
+        except Exception:
+            pass
+
+    def _terminate_sessions(self, timeout_seconds: float = 5.0) -> None:
+        self._prune_finished_sessions()
+        sessions = list(self.started_sessions)
+        # First try SIGTERM on groups, then PIDs
+        for s in sessions:
+            try:
+                pgid = s.get("pgid")
+                pid = int(s.get("pid"))
+                if pgid is not None:
+                    try:
+                        os.killpg(int(pgid), signal.SIGTERM)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        # Wait briefly
+        end_time = time.time() + timeout_seconds
+        while time.time() < end_time:
+            self._prune_finished_sessions()
+            if not self.started_sessions:
+                break
+            QApplication.processEvents()
+            time.sleep(0.1)
+        # Force kill leftovers
+        for s in list(self.started_sessions):
+            try:
+                pgid = s.get("pgid")
+                pid = int(s.get("pid"))
+                if pgid is not None:
+                    try:
+                        os.killpg(int(pgid), signal.SIGKILL)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        # Final prune
+        self._prune_finished_sessions()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        try:
+            self._prune_finished_sessions()
+            if not self.started_sessions:
+                return super().closeEvent(event)
+
+            # Build friendly list
+            lines = []
+            for s in self.started_sessions:
+                label = str(s.get("label") or "Session")
+                pid = s.get("pid")
+                lines.append(f"- {label} (PID {pid})")
+            message = "There are running sessions started from this launcher.\nWhat would you like to do?"
+
+            box = QMessageBox(self)
+            box.setWindowTitle("Running sessions detected")
+            box.setIcon(QMessageBox.Warning)
+            box.setText(message)
+            box.setInformativeText("\n".join(lines))
+            kill_all = box.addButton("Kill all", QMessageBox.AcceptRole)
+            leave_all = box.addButton("Leave running", QMessageBox.DestructiveRole)
+            cancel = box.addButton("Cancel", QMessageBox.RejectRole)
+            box.setDefaultButton(cancel)
+            box.exec_()
+
+            clicked = box.clickedButton()
+            if clicked is kill_all:
+                # Show progress while terminating sessions
+                progress = QProgressDialog(self)
+                progress.setWindowTitle("Please wait")
+                progress.setLabelText("Terminating sessions…")
+                progress.setCancelButton(None)
+                progress.setRange(0, 0)
+                progress.setWindowModality(Qt.WindowModal)
+                progress.setAutoClose(True)
+                progress.setAutoReset(True)
+                progress.setMinimumDuration(0)
+                progress.show()
+                try:
+                    QApplication.processEvents()
+                    self._terminate_sessions()
+                finally:
+                    try:
+                        progress.close()
+                    except Exception:
+                        pass
+                return super().closeEvent(event)
+            if clicked is leave_all:
+                # Leave processes running
+                return super().closeEvent(event)
+            # Cancel close
+            event.ignore()
+            return
+        except Exception:
+            # On error, proceed with default behavior
+            return super().closeEvent(event)
 
     def update_breadcrumbs(self) -> None:
         # Clear existing actions

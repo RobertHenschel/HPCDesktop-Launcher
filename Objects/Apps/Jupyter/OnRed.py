@@ -166,6 +166,8 @@ def create_window(parent, context: Dict[str, Any]):
         selected_interface = "notebook" if notebook_radio.isChecked() else "lab"
         selected_python_module_data = python_module_combo.currentData()
         selected_python_module = str(selected_python_module_data or python_module_combo.currentText()).strip() or "python"
+        label = "Notebook" if selected_interface == "notebook" else "Lab"
+        leaf = os.path.basename(os.path.normpath(selected_dir)) or selected_dir
 
         # Expose selections on the window for the launcher to read if desired
         setattr(window, "selected_startup_directory", selected_dir)
@@ -177,15 +179,26 @@ def create_window(parent, context: Dict[str, Any]):
         chained_cmd = f"cd {shlex.quote(selected_dir)}; module load {shlex.quote(selected_python_module)}; {interface_cmd}"
 
         try:
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 ["bash", "-lc", chained_cmd],
                 start_new_session=True,
             )
+            # Register started session with the launcher if possible
+            try:
+                if parent is not None:
+                    try:
+                        pgid = os.getpgid(proc.pid)
+                    except Exception:
+                        pgid = None
+                    label_full = f"Jupyter {label}: {leaf}"
+                    register_fn = getattr(parent, "register_started_session", None)
+                    if callable(register_fn):
+                        register_fn(proc.pid, label_full, pgid)
+            except Exception:
+                pass
             # Record history if enabled
             try:
                 if not dont_record_checkbox.isChecked() and parent is not None:
-                    label = "Notebook" if selected_interface == "notebook" else "Lab"
-                    leaf = os.path.basename(os.path.normpath(selected_dir)) or selected_dir
                     # Provide a shell script for replay to keep the launcher generic
                     script_lines = [
                         "#!/usr/bin/env bash",
