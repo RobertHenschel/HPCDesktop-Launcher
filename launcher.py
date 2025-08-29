@@ -13,7 +13,7 @@ import time
 from types import ModuleType
 from typing import Dict, List, Optional, Any
 
-from PyQt5.QtCore import Qt, QUrl, QSize, QObject, QEvent
+from PyQt5.QtCore import Qt, QUrl, QSize, QObject, QEvent, QTimer
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QApplication,
@@ -309,6 +309,8 @@ class LauncherWindow(QMainWindow):
                     # Use title from descriptor if present; else script basename
                     label = str(descriptor.get("title") or os.path.basename(script_path))
                     self.register_started_session(proc.pid, label, pgid)
+                    # Show the shared 5s launching dialog after starting from History
+                    self.show_launching_countdown(5)
                 except Exception:
                     pass
             return
@@ -333,6 +335,42 @@ class LauncherWindow(QMainWindow):
         self.populate_objects()
         self.load_index_html()
         self.update_breadcrumbs()
+
+    # -------------------- Launching countdown (shared) --------------------
+    def show_launching_countdown(self, seconds: int = 5) -> None:
+        try:
+            remaining = int(seconds)
+            if remaining <= 0:
+                return
+            progress = QProgressDialog(self)
+            progress.setWindowTitle("Launching")
+            progress.setLabelText(f"Launching... this may take a while. Closing in {remaining}s")
+            progress.setCancelButton(None)
+            progress.setRange(0, 0)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setAutoClose(True)
+            progress.setAutoReset(True)
+            progress.setMinimumDuration(0)
+            progress.show()
+
+            def tick() -> None:
+                nonlocal remaining
+                remaining -= 1
+                if remaining <= 0:
+                    try:
+                        progress.close()
+                    except Exception:
+                        pass
+                    return
+                try:
+                    progress.setLabelText(f"Launching... this may take a while. Closing in {remaining}s")
+                except Exception:
+                    pass
+                QTimer.singleShot(1000, tick)
+
+            QTimer.singleShot(1000, tick)
+        except Exception:
+            return
 
     # -------------------- Session tracking and cleanup --------------------
     def register_started_session(self, pid: int, label: str, pgid: Optional[int] = None) -> None:

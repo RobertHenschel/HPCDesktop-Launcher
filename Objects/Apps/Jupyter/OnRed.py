@@ -223,6 +223,14 @@ def create_window(parent, context: Dict[str, Any]):
                         record_fn(history_entry)
             except Exception:
                 pass
+            # Request the launcher to show the standard 5s launching countdown
+            try:
+                if parent is not None:
+                    show_cd = getattr(parent, "show_launching_countdown", None)
+                    if callable(show_cd):
+                        show_cd(5)
+            except Exception:
+                pass
         finally:
             # Close the window regardless; the server continues in the background
             window.close()
