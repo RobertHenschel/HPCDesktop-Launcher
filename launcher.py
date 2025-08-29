@@ -31,7 +31,11 @@ def resolve_base_path(cli_base_path: Optional[str]) -> str:
     - Otherwise, use the directory of this script appended with "/Objects/".
     """
     if cli_base_path:
-        return os.path.abspath(cli_base_path)
+        abs_cli = os.path.abspath(cli_base_path)
+        # If a JSON file is provided, use its directory as base for browsing
+        if abs_cli.lower().endswith(".json") and os.path.isfile(abs_cli):
+            return os.path.dirname(abs_cli)
+        return abs_cli
     script_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(script_dir, "Objects")
 
@@ -216,6 +220,12 @@ class LauncherWindow(QMainWindow):
         descriptor = item.data(Qt.UserRole) or {}
         if not isinstance(descriptor, dict):
             return
+        json_path = item.data(Qt.UserRole + 1) or ""
+        if isinstance(json_path, str):
+            self.execute_openaction(descriptor, json_path)
+        return
+
+    def execute_openaction(self, descriptor: Dict[str, str], json_path: str) -> None:
         open_action = descriptor.get("openaction")
         if not isinstance(open_action, dict):
             return
@@ -235,7 +245,6 @@ class LauncherWindow(QMainWindow):
             # Resolve plugin file path
             plugin_path = arg0 if os.path.isabs(arg0) else os.path.abspath(os.path.join(self.base_path, arg0))
             if os.path.isfile(plugin_path):
-                json_path = item.data(Qt.UserRole + 1) or ""
                 context = {
                     "base_path": self.base_path,
                     "root_base_path": self.root_base_path,
@@ -337,10 +346,23 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
 def main() -> int:
     args = parse_args(sys.argv[1:])
     base_path = resolve_base_path(args.base_path)
+    json_to_execute: Optional[str] = None
+    if args.base_path:
+        candidate = os.path.abspath(args.base_path)
+        if candidate.lower().endswith(".json") and os.path.isfile(candidate):
+            json_to_execute = candidate
 
     app = QApplication(sys.argv)
     window = LauncherWindow(base_path)
     window.show()
+    # If a JSON file was provided on CLI, execute its openaction right away
+    if json_to_execute:
+        descriptor = load_object_descriptor(json_to_execute)
+        if isinstance(descriptor, dict):
+            try:
+                window.execute_openaction(descriptor, json_to_execute)
+            except Exception:
+                pass
     return app.exec_()
 
 
