@@ -293,6 +293,13 @@ class LauncherWindow(QMainWindow):
         self.breadcrumbs.clear()
 
         def add_action(label: str, target_path: str) -> None:
+            # Insert a small arrow before every crumb after the first
+            if self.breadcrumbs.actions():
+                arrow = QAction("->", self)
+                arrow.setEnabled(False)
+                arrow.setSeparator(False)
+                self.breadcrumbs.addAction(arrow)
+
             action = QAction(label, self)
             action.triggered.connect(lambda _=False, p=target_path: self.change_base_path(p))
             self.breadcrumbs.addAction(action)
