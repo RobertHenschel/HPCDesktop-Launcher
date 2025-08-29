@@ -113,7 +113,12 @@ class LauncherWindow(QMainWindow):
     def __init__(self, base_path: str) -> None:
         super().__init__()
         self.base_path = os.path.abspath(base_path)
-        self.root_base_path = self.base_path
+        # Keep a stable root for app-owned assets (e.g., History) regardless of CLI base
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            self.root_base_path = os.path.join(script_dir, "Objects")
+        except Exception:
+            self.root_base_path = self.base_path
         self.child_windows: List[Any] = []
         self.started_sessions: List[Dict[str, Any]] = []
 
