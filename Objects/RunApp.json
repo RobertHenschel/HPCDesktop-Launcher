@@ -1,0 +1,9 @@
+{
+    "title": "Run App",
+    "icon": "./Resources/Folder.png",
+    "details": "RunApp.html",
+    "openaction": {
+        "command": "path",
+        "arg0": "./Apps"
+    }
+}

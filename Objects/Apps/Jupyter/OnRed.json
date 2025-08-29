@@ -1,0 +1,9 @@
+{
+    "title": "Jupyter on Red",
+    "icon": "./Resources/Jupyter.png",
+    "details": "OnRed.html",
+    "openaction": {
+        "command": "python",
+        "arg0": "./OnRed.py"
+    }
+}

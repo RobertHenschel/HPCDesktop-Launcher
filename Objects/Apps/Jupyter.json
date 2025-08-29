@@ -1,0 +1,9 @@
+{
+    "title": "Run Jupyter",
+    "icon": "./Resources/Jupyter.png",
+    "details": "Jupyter.html",
+    "openaction": {
+        "command": "path",
+        "arg0": "./Jupyter"
+    }
+}
