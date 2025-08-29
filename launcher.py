@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QStyle,
     QToolBar,
     QAction,
+    QProgressDialog,
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 
@@ -265,7 +266,24 @@ class LauncherWindow(QMainWindow):
                     "descriptor": descriptor,
                     "json_path": json_path,
                 }
-                self.run_python_plugin(plugin_path, context)
+                # Show a working indicator while the plugin is being loaded
+                progress = QProgressDialog("Launching…", None, 0, 0, self)
+                progress.setWindowTitle("Please wait")
+                progress.setWindowModality(Qt.WindowModal)
+                progress.setCancelButton(None)
+                progress.setAutoClose(True)
+                progress.setAutoReset(True)
+                progress.setMinimumDuration(0)
+                progress.show()
+                try:
+                    # Process events to ensure the dialog appears immediately
+                    QApplication.processEvents()
+                    self.run_python_plugin(plugin_path, context)
+                finally:
+                    try:
+                        progress.close()
+                    except Exception:
+                        pass
             return
 
         if command == "shell":
@@ -455,6 +473,11 @@ class LauncherWindow(QMainWindow):
             # Keep reference to prevent GC
             self.child_windows.append(window)
             window.show()
+            try:
+                window.raise_()
+                window.activateWindow()
+            except Exception:
+                pass
         except Exception:
             return
 
